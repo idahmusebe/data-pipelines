@@ -1,105 +1,62 @@
-Data Pipelines: Earthquakes and CO₂ Emissions
+# Data Pipelines: Earthquakes and CO₂ Emissions
 
 For this project, I built two data pipelines: one that ingests recent earthquake events and another that processes CO₂ emissions data in batches. I wanted to work with both real-time and batch data and understand how the data moves from ingestion through transformation to useful summaries.
 
 I used Apache NiFi for earthquake ingestion, Apache Airflow to orchestrate the workflows, ClickHouse for storage, and dbt for the CO₂ transformations and tests. The pipelines use a Bronze, Silver, and Gold structure.
 
-What I built
+## What I Built
 
-Real-time earthquake pipeline
+### 1. Real-Time Earthquake Pipeline
 
 This pipeline gets earthquake events from the USGS GeoJSON feed.
 
 The NiFi flow is:
 
-InvokeHTTP → SplitJson → JoltTransformJSON → UpdateAttribute → PutDatabaseRecord
+`InvokeHTTP → SplitJson → JoltTransformJSON → UpdateAttribute → PutDatabaseRecord`
 
-InvokeHTTP requests the USGS feed.
+* **InvokeHTTP:** Requests the USGS earthquake feed.
+* **SplitJson:** Separates the response into individual earthquake events.
+* **JoltTransformJSON:** Reshapes the JSON fields into the structure used by the database.
+* **UpdateAttribute:** Adds source metadata.
+* **PutDatabaseRecord:** Writes the records to ClickHouse.
 
-SplitJson separates the response into individual earthquake events.
+The records land in Bronze. An Airflow DAG called `earthquake_pipeline` refreshes the Silver and Gold tables on a five-minute schedule.
 
-JoltTransformJSON reshapes the JSON fields into the structure used by the database.
+| Layer  | ClickHouse table                | Purpose                                               |
+| ------ | ------------------------------- | ----------------------------------------------------- |
+| Bronze | `bronze.earthquakes_dedup`      | Stores ingested earthquake events                     |
+| Silver | `silver.earthquakes`            | Holds transformed earthquake records                  |
+| Gold   | `gold.daily_earthquake_summary` | Summarizes earthquakes by date and magnitude category |
 
-UpdateAttribute adds source metadata.
+### 2. Batch CO₂ Emissions Pipeline
 
-PutDatabaseRecord writes the records to ClickHouse.
+For the batch pipeline, I used the Our World in Data CO₂ dataset stored in `data/owid-co2-data.csv`.
 
-The records land in Bronze. An Airflow DAG called earthquake_pipeline refreshes the Silver and Gold tables on a five-minute schedule.
+Airflow runs the `co2_batch_pipeline` DAG to load and validate the data. I used dbt to build the transformation models and run tests.
 
-Layer
+| Layer  | ClickHouse table                    | Purpose                             |
+| ------ | ----------------------------------- | ----------------------------------- |
+| Bronze | `bronze.co2_emissions`              | Stores the source data              |
+| Silver | `analytics_silver.co2_emissions`    | Holds transformed emissions data    |
+| Gold   | `analytics_gold.annual_co2_summary` | Contains annual CO₂ summary results |
 
-ClickHouse table
+## Tools I Used
 
-Purpose
+* Apache NiFi
+* Apache Airflow
+* ClickHouse
+* dbt
+* Docker Compose
+* Python
+* SQL
+* Pandas
 
-Bronze
+## Project Structure
 
-bronze.earthquakes_dedup
-
-Stores ingested earthquake events
-
-Silver
-
-silver.earthquakes
-
-Holds the transformed earthquake records
-
-Gold
-
-gold.daily_earthquake_summary
-
-Summarizes earthquakes by date and magnitude category
-
-Batch CO₂ emissions pipeline
-
-For the batch pipeline, I used the Our World in Data CO₂ dataset in data/owid-co2-data.csv.
-
-Airflow runs the co2_batch_pipeline DAG to load and validate the data. I used dbt to build the transformation models and run tests.
-
-Layer
-
-ClickHouse table
-
-Purpose
-
-Bronze
-
-bronze.co2_emissions
-
-Stores the source data
-
-Silver
-
-analytics_silver.co2_emissions
-
-Holds the transformed emissions data
-
-Gold
-
-analytics_gold.annual_co2_summary
-
-Contains annual CO₂ summary results
-
-Tools I used
-
-Apache NiFi
-
-Apache Airflow
-
-ClickHouse
-
-dbt
-
-Docker Compose
-
-Python and SQL
-
-Pandas
-
-Project structure
-
+```text
 data-pipelines/
 ├── docker-compose.yml
+├── README.md
 ├── airflow/
 │   └── dags/
 │       ├── co2_batch_pipeline.py
@@ -108,8 +65,13 @@ data-pipelines/
 │       ├── requirements.txt
 │       └── co2_analytics/
 │           ├── dbt_project.yml
-│           ├── profiles.yml
+│           ├── profiles.example.yml
 │           └── models/
+│               └── example/
+│                   ├── marts/
+│                   │   └── gold_annual_co2_summary.sql
+│                   └── staging/
+│                       └── silver_co2_emissions.sql
 ├── clickhouse/
 │   └── init/
 │       ├── 01_create_tables.sql
@@ -118,126 +80,130 @@ data-pipelines/
 │   └── owid-co2-data.csv
 └── nifi/
     └── clickhouse-jdbc.jar
+```
 
-Running the project
+## Running the Project
 
 I ran the project locally using Docker Compose from the project root.
 
-Start the services:
+### Start the services
 
+```powershell
 docker compose up -d
 docker compose ps
+```
 
-The local interfaces are:
+### Local interfaces
 
-Airflow: http://localhost:8085
+* **Airflow:** http://localhost:8085
+* **NiFi:** https://localhost:8443/nifi
+* **ClickHouse HTTP:** http://localhost:8124
 
-NiFi: https://localhost:8443/nifi
+### Start the NiFi flow
 
-ClickHouse HTTP: http://localhost:8124
+In NiFi, I started the processors from the database destination backwards toward the HTTP source:
 
-In NiFi, the processors are started from the database destination backwards toward the HTTP source: PutDatabaseRecord, UpdateAttribute, JoltTransformJSON, SplitJson, and then InvokeHTTP.
+1. `PutDatabaseRecord`
+2. `UpdateAttribute`
+3. `JoltTransformJSON`
+4. `SplitJson`
+5. `InvokeHTTP`
 
-To check the Airflow DAGs:
+### Check the Airflow DAGs
 
+List available DAGs:
+
+```powershell
 docker exec data-pipelines-airflow airflow dags list
+```
 
-To trigger the earthquake refresh:
+Trigger the earthquake refresh:
 
+```powershell
 docker exec data-pipelines-airflow airflow dags trigger earthquake_pipeline
+```
 
-To trigger the CO₂ batch workflow:
+Trigger the CO₂ batch workflow:
 
+```powershell
 docker exec data-pipelines-airflow airflow dags trigger co2_batch_pipeline
+```
 
-To check their runs:
+Check the earthquake pipeline runs:
 
+```powershell
 docker exec data-pipelines-airflow airflow dags list-runs -d earthquake_pipeline
+```
+
+Check the CO₂ pipeline runs:
+
+```powershell
 docker exec data-pipelines-airflow airflow dags list-runs -d co2_batch_pipeline
+```
 
-To run the dbt models and tests:
+### Run the dbt models and tests
 
+Run the models:
+
+```powershell
 docker exec data-pipelines-airflow bash -lc "cd /opt/airflow/dags/co2_analytics && dbt run --profiles-dir ."
-docker exec data-pipelines-airflow bash -lc "cd /opt/airflow/dags/co2_analytics && dbt test --profiles-dir ."
+```
 
-Validation results
+Run the tests:
+
+```powershell
+docker exec data-pipelines-airflow bash -lc "cd /opt/airflow/dags/co2_analytics && dbt test --profiles-dir ."
+```
+
+## Validation Results
 
 These are the results I observed during testing on October 26, 2026. Earthquake counts can change because the source feed is live.
 
-Earthquake pipeline
+### Earthquake Pipeline
 
-Check
-
-Result
-
-Bronze records
-
-70
-
-Silver records
-
-70
-
-Gold summary rows
-
-6
-
-Unique earthquake IDs in the deduplicated Bronze read
-
-70
-
-Latest ingestion timestamp observed
-
-2026-10-26 06:25:29 UTC
-
-Recent Airflow runs
-
-Successful
+| Check                                                 |                  Result |
+| ----------------------------------------------------- | ----------------------: |
+| Bronze records                                        |                      70 |
+| Silver records                                        |                      70 |
+| Gold summary rows                                     |                       6 |
+| Unique earthquake IDs in the deduplicated Bronze read |                      70 |
+| Latest ingestion timestamp observed                   | 2026-10-26 06:25:29 UTC |
+| Recent Airflow runs                                   |              Successful |
 
 Bronze and Silver had matching record counts in the check. Gold has fewer rows because it groups the events into date and magnitude summaries.
 
-CO₂ batch pipeline
+### CO₂ Batch Pipeline
 
-Check
+| Check             |                                      Result |
+| ----------------- | ------------------------------------------: |
+| Bronze records    |                                      50,411 |
+| Silver records    |                                      50,411 |
+| Gold summary rows |                                         275 |
+| dbt models        |             4 succeeded in the recorded run |
+| dbt tests         |           4 passed in the recorded test run |
+| Airflow           | A scheduled CO₂ task completed successfully |
 
-Result
+## Queries I Used to Check the Tables
 
-Bronze records
+These commands use the `CLICKHOUSE_PASSWORD` environment variable in the current PowerShell session. Set it before running the queries if it is not already defined.
 
-50,411
+```powershell
+$env:CLICKHOUSE_PASSWORD = Read-Host "Enter ClickHouse password"
+```
 
-Silver records
+### Earthquake counts
 
-50,411
+```powershell
+docker exec data-pipelines-clickhouse clickhouse-client --user pipeline_user --password "$env:CLICKHOUSE_PASSWORD" --query "SELECT 'Bronze' AS layer, count() AS records FROM bronze.earthquakes_dedup FINAL UNION ALL SELECT 'Silver', count() FROM silver.earthquakes UNION ALL SELECT 'Gold', count() FROM gold.daily_earthquake_summary"
+```
 
-Gold summary rows
+### CO₂ counts
 
-275
+```powershell
+docker exec data-pipelines-clickhouse clickhouse-client --user pipeline_user --password "$env:CLICKHOUSE_PASSWORD" --query "SELECT 'Bronze CO2' AS layer, count() AS records FROM bronze.co2_emissions UNION ALL SELECT 'Silver CO2', count() FROM analytics_silver.co2_emissions UNION ALL SELECT 'Gold CO2', count() FROM analytics_gold.annual_co2_summary"
+```
 
-dbt models
+## Data Sources
 
-4 succeeded in the recorded run
-
-dbt tests
-
-4 passed in the recorded test run
-
-Airflow
-
-A scheduled CO₂ task completed successfully
-
-Queries I used to check the tables
-
-Earthquake counts:
-
-docker exec data-pipelines-clickhouse clickhouse-client --user pipeline_user ----password "$env:CLICKHOUSE_PASSWORD" --query "SELECT 'Bronze' AS layer, count() AS records FROM bronze.earthquakes_dedup FINAL UNION ALL SELECT 'Silver', count() FROM silver.earthquakes UNION ALL SELECT 'Gold', count() FROM gold.daily_earthquake_summary"
-
-CO₂ counts:
-
-docker exec data-pipelines-clickhouse clickhouse-client --user pipeline_user ----password "$env:CLICKHOUSE_PASSWORD" --query "SELECT 'Bronze CO2' AS layer, count() AS records FROM bronze.co2_emissions UNION ALL SELECT 'Silver CO2', count() FROM analytics_silver.co2_emissions UNION ALL SELECT 'Gold CO2', count() FROM analytics_gold.annual_co2_summary"
-
-Data sources
-
-https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson
-
-https://github.com/owid/co2-data
+* [USGS Earthquake GeoJSON Feed](https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson)
+* [Our World in Data CO₂ Dataset](https://github.com/owid/co2-data)
