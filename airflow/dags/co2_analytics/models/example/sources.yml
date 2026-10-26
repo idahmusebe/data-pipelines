@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: silver
+    database: analytics_silver
+    schema: silver
+    tables:
+      - name: co2_emissions

@@ -1,0 +1,46 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+.env.backup
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Airflow logs and generated files
+airflow/logs/
+**/logs/
+airflow/dags/co2_analytics/target/
+airflow/dags/co2_analytics/logs/
+dbt/target/
+dbt/logs/
+
+# Local and temporary files
+*.log
+.DS_Store
+Thumbs.db
+
+# Dataset files
+data/*.csv
+
+# Local databases and credentials
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+
+# JDBC driver
+nifi/*.jar
+
+# Local dbt user settings
+airflow/dags/co2_analytics/.user.yml
+
+# Local dbt connection credentials
+airflow/dags/co2_analytics/profiles.yml

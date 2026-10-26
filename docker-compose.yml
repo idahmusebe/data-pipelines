@@ -1,0 +1,80 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: data-pipelines-clickhouse
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: pipeline_user
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8124:8123"
+      - "9002:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+
+  airflow:
+    image: ${AIRFLOW_IMAGE_NAME}
+    container_name: data-pipelines-airflow
+    env_file:
+      - ./airflow/.env
+    command: webserver
+    environment: &airflow-common-environment
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      _PIP_ADDITIONAL_REQUIREMENTS: "clickhouse-connect pandas dbt-clickhouse"
+    ports:
+      - "8085:8080"
+    volumes: &airflow-common-volumes
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_home:/opt/airflow
+      - ./airflow/logs:/opt/airflow/logs
+      - ./data:/opt/airflow/data:ro
+    depends_on:
+      - clickhouse
+    restart: unless-stopped
+
+  scheduler:
+    image: ${AIRFLOW_IMAGE_NAME}
+    container_name: data-pipelines-scheduler
+    env_file:
+      - ./airflow/.env
+    command: scheduler
+    environment: *airflow-common-environment
+    volumes: *airflow-common-volumes
+    depends_on:
+      - clickhouse
+    restart: unless-stopped
+
+  nifi:
+    image: apache/nifi:2.6.0
+    container_name: data-pipelines-nifi
+    ports:
+      - "8443:8443"
+    environment:
+      SINGLE_USER_CREDENTIALS_USERNAME: ${NIFI_USERNAME}
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASSWORD}
+    volumes:
+      - nifi_conf:/opt/nifi/nifi-current/conf
+      - nifi_state:/opt/nifi/nifi-current/state
+      - nifi_database_repository:/opt/nifi/nifi-current/database_repository
+      - nifi_flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
+      - nifi_content_repository:/opt/nifi/nifi-current/content_repository
+      - nifi_provenance_repository:/opt/nifi/nifi-current/provenance_repository
+    restart: unless-stopped
+
+volumes:
+  clickhouse_data:
+  airflow_home:
+  nifi_conf:
+  nifi_state:
+  nifi_database_repository:
+  nifi_flowfile_repository:
+  nifi_content_repository:
+  nifi_provenance_repository:

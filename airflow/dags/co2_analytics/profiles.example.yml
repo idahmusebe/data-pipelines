@@ -1,0 +1,12 @@
+co2_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse
+      schema: analytics
+      host: "{{ env_var('CLICKHOUSE_HOST', 'localhost') }}"
+      port: 8124
+      user: "{{ env_var('CLICKHOUSE_USER', 'pipeline_user') }}"
+      password: "{{ env_var('CLICKHOUSE_PASSWORD') }}"
+      secure: false
+      threads: 1
