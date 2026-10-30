@@ -1,8 +1,12 @@
-# Data Pipelines: Earthquakes and CO₂ Emissions
+# Data Pipelines: Earthquakes, CO₂ Emissions and Baserow Sales
 
-For this project, I built two data pipelines: one that ingests recent earthquake events and another that processes CO₂ emissions data in batches. I wanted to work with both real-time and batch data and understand how the data moves from ingestion through transformation to useful summaries.
+This project contains three data pipelines built to explore real-time ingestion, batch processing, and API-based data integration. I used Apache NiFi, Apache Airflow, ClickHouse, dbt, Python, and Docker Compose to build workflows that move data from different sources through Bronze, Silver, and Gold layers.
 
-I used Apache NiFi for earthquake ingestion, Apache Airflow to orchestrate the workflows, ClickHouse for storage, and dbt for the CO₂ transformations and tests. The pipelines use a Bronze, Silver, and Gold structure.
+The three pipelines are:
+
+1. A real-time earthquake pipeline using the USGS GeoJSON feed.
+2. A batch CO₂ emissions pipeline using the Our World in Data dataset.
+3. A Baserow Sales pipeline that extracts customer, product, and order data through the Baserow API.
 
 ## What I Built
 
@@ -40,6 +44,38 @@ Airflow runs the `co2_batch_pipeline` DAG to load and validate the data. I used 
 | Silver | `analytics_silver.co2_emissions`    | Holds transformed emissions data    |
 | Gold   | `analytics_gold.annual_co2_summary` | Contains annual CO₂ summary results |
 
+### 3. Baserow Sales Data Pipeline
+
+The Baserow pipeline integrates sales management data from Baserow using its REST API.
+
+The source database contains three related tables:
+
+* **Customers:** Customer IDs, names, email addresses, locations, and registration dates.
+* **Products:** Product IDs, names, categories, unit prices, and stock quantities.
+* **Orders:** Order IDs, dates, quantities, order statuses, and linked customer and product records.
+
+Python and Requests handle API extraction and pagination. The ingestion script loads the extracted records into ClickHouse Bronze tables.
+
+The pipeline uses an idempotent ingestion approach. It creates staging tables, inserts and validates the extracted records, and then exchanges the staging tables with the existing Bronze tables. This prevents repeated pipeline runs from simply appending duplicate source records.
+
+Airflow orchestrates the workflow through the `baserow_pipeline` DAG.
+
+The workflow is:
+
+`Baserow API → Python Ingestion → ClickHouse Bronze → dbt Silver → dbt Gold → dbt Tests`
+
+| Layer  | ClickHouse table                            | Purpose                                   |
+| ------ | ------------------------------------------- | ----------------------------------------- |
+| Bronze | `bronze.baserow_customers_raw`              | Stores extracted customer records         |
+| Bronze | `bronze.baserow_products_raw`               | Stores extracted product records          |
+| Bronze | `bronze.baserow_orders_raw`                 | Stores extracted order records            |
+| Silver | `analytics_silver.stg_baserow_customers`    | Cleans and deduplicates customer records  |
+| Silver | `analytics_silver.stg_baserow_products`     | Cleans and deduplicates product records   |
+| Silver | `analytics_silver.stg_baserow_orders`       | Transforms and deduplicates order records |
+| Gold   | `analytics_gold.gold_baserow_sales_summary` | Produces an aggregated sales summary      |
+
+The Gold model combines order, customer, and product information to provide sales summaries by order date, status, and product category.
+
 ## Tools I Used
 
 * Apache NiFi
@@ -50,6 +86,8 @@ Airflow runs the `co2_batch_pipeline` DAG to load and validate the data. I used 
 * Python
 * SQL
 * Pandas
+* Requests
+* Baserow REST API
 
 ## Project Structure
 
@@ -59,23 +97,30 @@ data-pipelines/
 ├── README.md
 ├── airflow/
 │   └── dags/
-│       ├── co2_batch_pipeline.py
 │       ├── earthquake_pipeline.py
+│       ├── co2_batch_pipeline.py
+│       ├── baserow_pipeline.py
+│       ├── ingest_baserow.py
+│       ├── inspect_baserow.py
 │       ├── load_co2_staging.py
-│       ├── requirements.txt
 │       └── co2_analytics/
 │           ├── dbt_project.yml
 │           ├── profiles.example.yml
 │           └── models/
-│               └── example/
-│                   ├── marts/
-│                   │   └── gold_annual_co2_summary.sql
-│                   └── staging/
-│                       └── silver_co2_emissions.sql
+│               ├── example/
+│               └── baserow/
+│                   ├── sources.yml
+│                   ├── staging/
+│                   │   ├── stg_baserow_customers.sql
+│                   │   ├── stg_baserow_products.sql
+│                   │   └── stg_baserow_orders.sql
+│                   └── marts/
+│                       └── gold_baserow_sales_summary.sql
+├── baserow/
+│   ├── ingest_baserow.py
+│   └── inspect_baserow.py
 ├── clickhouse/
 │   └── init/
-│       ├── 01_create_tables.sql
-│       └── 02_create_co2_tables.sql
 ├── data/
 │   └── owid-co2-data.csv
 └── nifi/
@@ -129,6 +174,18 @@ Trigger the CO₂ batch workflow:
 docker exec data-pipelines-airflow airflow dags trigger co2_batch_pipeline
 ```
 
+Trigger the Baserow pipeline:
+
+```powershell
+docker exec data-pipelines-airflow airflow dags trigger baserow_pipeline
+```
+
+Check Baserow pipeline runs:
+
+```powershell
+docker exec data-pipelines-airflow airflow dags list-runs -d baserow_pipeline
+```
+
 Check the earthquake pipeline runs:
 
 ```powershell
@@ -143,7 +200,7 @@ docker exec data-pipelines-airflow airflow dags list-runs -d co2_batch_pipeline
 
 ### Run the dbt models and tests
 
-Run the models:
+Run the existing dbt models:
 
 ```powershell
 docker exec data-pipelines-airflow bash -lc "cd /opt/airflow/dags/co2_analytics && dbt run --profiles-dir ."
@@ -155,9 +212,33 @@ Run the tests:
 docker exec data-pipelines-airflow bash -lc "cd /opt/airflow/dags/co2_analytics && dbt test --profiles-dir ."
 ```
 
+To run only the Baserow models:
+
+```powershell
+docker exec data-pipelines-airflow bash -lc "dbt run --project-dir /opt/airflow/dags/co2_analytics --profiles-dir /opt/airflow/dags/co2_analytics --select path:models/baserow"
+```
+
+To test the Baserow models:
+
+```powershell
+docker exec data-pipelines-airflow bash -lc "dbt test --project-dir /opt/airflow/dags/co2_analytics --profiles-dir /opt/airflow/dags/co2_analytics --select path:models/baserow"
+```
+
+### Baserow configuration
+
+The Baserow API token is supplied through an environment variable:
+
+```text
+BASEROW_API_TOKEN
+```
+
+The token should be configured in the local environment files and must not be committed to GitHub.
+
+The Docker Compose configuration passes the token to Airflow through environment-variable substitution.
+
 ## Validation Results
 
-These are the results I observed during testing on October 26, 2026. Earthquake counts can change because the source feed is live.
+These are results observed during testing on October 26–30, 2026. Earthquake counts can change because the source feed is live.
 
 ### Earthquake Pipeline
 
@@ -183,6 +264,24 @@ Bronze and Silver had matching record counts in the check. Gold has fewer rows b
 | dbt tests         |           4 passed in the recorded test run |
 | Airflow           | A scheduled CO₂ task completed successfully |
 
+### Baserow Sales Pipeline
+
+| Check                   |      Result |
+| ----------------------- | ----------: |
+| Customers extracted     |           5 |
+| Products extracted      |           5 |
+| Orders extracted        |           5 |
+| Bronze customer records |           5 |
+| Bronze product records  |           5 |
+| Bronze order records    |           5 |
+| dbt models              | 4 succeeded |
+| dbt tests               |   14 passed |
+| Airflow pipeline run    |  Successful |
+
+The ingestion process was also tested more than once to verify that repeated runs did not append duplicate records to the Bronze tables.
+
+The Gold summary contained five order records, with a gross order value of KES 128,900 across all order statuses, including cancelled orders. This is an order-value total, not realized revenue.
+
 ## Queries I Used to Check the Tables
 
 These commands use the `CLICKHOUSE_PASSWORD` environment variable in the current PowerShell session. Set it before running the queries if it is not already defined.
@@ -203,7 +302,14 @@ docker exec data-pipelines-clickhouse clickhouse-client --user pipeline_user --p
 docker exec data-pipelines-clickhouse clickhouse-client --user pipeline_user --password "$env:CLICKHOUSE_PASSWORD" --query "SELECT 'Bronze CO2' AS layer, count() AS records FROM bronze.co2_emissions UNION ALL SELECT 'Silver CO2', count() FROM analytics_silver.co2_emissions UNION ALL SELECT 'Gold CO2', count() FROM analytics_gold.annual_co2_summary"
 ```
 
+### Baserow counts
+
+```powershell
+docker exec data-pipelines-clickhouse clickhouse-client --user pipeline_user --password "$env:CLICKHOUSE_PASSWORD" --query "SELECT 'Customers' AS dataset, count() AS records FROM bronze.baserow_customers_raw UNION ALL SELECT 'Products', count() FROM bronze.baserow_products_raw UNION ALL SELECT 'Orders', count() FROM bronze.baserow_orders_raw"
+```
+
 ## Data Sources
 
 * [USGS Earthquake GeoJSON Feed](https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson)
 * [Our World in Data CO₂ Dataset](https://github.com/owid/co2-data)
+* [Baserow](https://baserow.io/)

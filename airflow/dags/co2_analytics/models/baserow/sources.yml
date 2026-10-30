@@ -1,0 +1,82 @@
+version: 2
+
+sources:
+  - name: baserow_bronze
+    database: bronze
+    schema: bronze
+    tables:
+      - name: customers_raw
+        identifier: baserow_customers_raw
+
+      - name: products_raw
+        identifier: baserow_products_raw
+
+      - name: orders_raw
+        identifier: baserow_orders_raw
+
+models:
+  - name: stg_baserow_customers
+    description: Cleaned customer records from Baserow.
+    columns:
+      - name: customer_id
+        description: Unique customer identifier.
+        tests:
+          - not_null
+          - unique
+
+      - name: email
+        description: Customer email address.
+        tests:
+          - not_null
+
+  - name: stg_baserow_products
+    description: Cleaned product records from Baserow.
+    columns:
+      - name: product_id
+        description: Unique product identifier.
+        tests:
+          - not_null
+          - unique
+
+      - name: unit_price
+        description: Product selling price.
+        tests:
+          - not_null
+
+  - name: stg_baserow_orders
+    description: Cleaned order records from Baserow.
+    columns:
+      - name: order_id
+        description: Unique order identifier.
+        tests:
+          - not_null
+          - unique
+
+      - name: customer_id
+        description: Customer associated with the order.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_baserow_customers')
+                field: customer_id
+
+      - name: product_id
+        description: Product associated with the order.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_baserow_products')
+                field: product_id
+
+  - name: gold_baserow_sales_summary
+    description: Aggregated sales performance by date, status and category.
+    columns:
+      - name: total_orders
+        tests:
+          - not_null
+
+      - name: total_sales_revenue
+        tests:
+          - not_null

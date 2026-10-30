@@ -28,7 +28,8 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
-      _PIP_ADDITIONAL_REQUIREMENTS: "clickhouse-connect pandas dbt-clickhouse"
+      BASEROW_API_TOKEN: ${BASEROW_API_TOKEN}
+      _PIP_ADDITIONAL_REQUIREMENTS: "clickhouse-connect pandas dbt-clickhouse requests"
     ports:
       - "8085:8080"
     volumes: &airflow-common-volumes
